@@ -1,0 +1,31 @@
+{
+    "functions": {
+        "source": "functions"
+    },
+    "firestore": {
+        "rules": "firestore.rules"
+    },
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "nexmeet-b53bd",
+                    "appId": "1:474385170881:android:7860528f21d59a45802f40",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "nexmeet-b53bd",
+                    "configurations": {
+                        "android": "1:474385170881:android:7860528f21d59a45802f40",
+                        "ios": "1:474385170881:ios:6a5c0b63206f45b4802f40",
+                        "macos": "1:474385170881:ios:6a5c0b63206f45b4802f40",
+                        "web": "1:474385170881:web:c0e2026e0d59bb79802f40",
+                        "windows": "1:474385170881:web:e852f49c15d7264e802f40"
+                    }
+                }
+            }
+        }
+    }
+}

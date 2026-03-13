@@ -1,0 +1,189 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasRole(role) {
+      return signedIn() && request.auth.token.role == role;
+    }
+
+    function isPassenger() {
+      return hasRole('passenger');
+    }
+
+    function isDriver() {
+      return hasRole('driver');
+    }
+
+    function isConductor() {
+      return hasRole('conductor');
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isKnownRole() {
+      return isPassenger() || isDriver() || isConductor() || isAdmin();
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAssignedDriver(vehicleId) {
+      return isDriver()
+        && vehicleId is string
+        && (
+          request.auth.token.vehicleId == vehicleId
+          || (
+            exists(/databases/$(database)/documents/vehicles/$(vehicleId))
+            && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.driverId == request.auth.uid
+          )
+        );
+    }
+
+    function isAssignedVehicleReader() {
+      return isAdmin()
+        || (isDriver() && resource.data.driverId == request.auth.uid)
+        || (isConductor() && resource.data.conductorId == request.auth.uid);
+    }
+
+    function isOwnTicket() {
+      return signedIn() && resource.data.passengerId == request.auth.uid;
+    }
+
+    function conductorTicketUpdateAllowed() {
+      return isConductor()
+        && request.resource.data.passengerId == resource.data.passengerId
+        && request.resource.data.routeId == resource.data.routeId
+        && request.resource.data.tripId == resource.data.tripId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.seatNumber == resource.data.seatNumber
+        && request.resource.data.verifiedBy == request.auth.uid
+        && request.resource.data.status in ['verified', 'used']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'verifiedAt',
+          'verifiedBy',
+          'verificationNote',
+          'lastScannedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function conductorOccupancyUpdateAllowed() {
+      return isConductor()
+        && resource.data.conductorId == request.auth.uid
+        && request.resource.data.routeId == resource.data.routeId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.driverId == resource.data.driverId
+        && request.resource.data.conductorId == resource.data.conductorId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'currentOccupancy',
+          'occupiedSeats',
+          'availableSeats',
+          'seatMap',
+          'verifiedTicketCount',
+          'occupancyUpdatedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function driverTelemetryWriteAllowed() {
+      return isDriver()
+        && resource.data.driverId == request.auth.uid
+        && request.resource.data.driverId == resource.data.driverId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && isAssignedDriver(resource.data.vehicleId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'latitude',
+          'longitude',
+          'heading',
+          'speed',
+          'accuracy',
+          'altitude',
+          'status',
+          'ignitionOn',
+          'batteryLevel',
+          'odometer',
+          'timestamp',
+          'updatedAt'
+        ]);
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin() || (isKnownRole() && isSelf(userId));
+
+      allow create: if isAdmin()
+        || (
+          isKnownRole()
+          && isSelf(userId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.role == request.auth.token.role
+        );
+
+      allow update: if isAdmin()
+        || (
+          isKnownRole()
+          && isSelf(userId)
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role == resource.data.role
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /routes/{routeId} {
+      allow read: if isKnownRole();
+      allow write: if isAdmin();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if signedIn() && isAssignedVehicleReader();
+      allow write: if isAdmin();
+    }
+
+    match /trips/{tripId} {
+      allow read: if isAdmin() || isDriver() || isConductor();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || conductorOccupancyUpdateAllowed();
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isAdmin() || isConductor() || isOwnTicket();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || conductorTicketUpdateAllowed();
+    }
+
+    match /telemetry/{telemetryId} {
+      allow read: if isAdmin() || isDriver() || isConductor();
+
+      allow create: if isAdmin()
+        || (
+          isDriver()
+          && request.resource.data.vehicleId is string
+          && request.resource.data.driverId == request.auth.uid
+          && isAssignedDriver(request.resource.data.vehicleId)
+        );
+
+      allow update: if isAdmin() || driverTelemetryWriteAllowed();
+      allow delete: if isAdmin();
+    }
+
+    match /alerts/{alertId} {
+      allow read: if isKnownRole();
+      allow write: if isAdmin();
+    }
+
+    match /adminDashboards/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

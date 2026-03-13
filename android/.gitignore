@@ -1,0 +1,18 @@
+# Flutter
+build/
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+android/.gradle/
+android/app/build/
+
+# Firebase
+google-services.json
+firebase_options.dart
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
