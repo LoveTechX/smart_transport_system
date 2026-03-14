@@ -185,6 +185,72 @@ const aggregateTripAnalytics = onDocumentWritten('trips/{tripId}', async (event)
         eventId: event.id,
         tripId: event.params.tripId,
     });
+
+    const crowdSource = afterData || beforeData;
+    if (!crowdSource?.vehicleId) {
+        return;
+    }
+
+    const vehicleId = crowdSource.vehicleId;
+    const currentOccupancy = toNumber(crowdSource.currentOccupancy);
+    const availableSeats = toNumber(crowdSource.availableSeats);
+    const capacity = currentOccupancy + availableSeats;
+    const occupancyRatio = capacity > 0 ? currentOccupancy / capacity : 0;
+
+    let crowdLevel = 'HIGH';
+    if (occupancyRatio < 0.3) {
+        crowdLevel = 'LOW';
+    } else if (occupancyRatio < 0.7) {
+        crowdLevel = 'MEDIUM';
+    }
+
+    await db
+        .collection('crowdStatus')
+        .doc(vehicleId)
+        .set(
+            {
+                vehicleId,
+                currentOccupancy,
+                capacity,
+                occupancyRatio,
+                crowdLevel,
+                updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+        );
+
+    console.log('Crowd status updated:', vehicleId, crowdLevel);
+
+    const routeId = crowdSource.routeId;
+    if (!routeId) {
+        return;
+    }
+
+    const tripStateSnap = await db.collection('tripState').doc(vehicleId).get();
+    const tripState = tripStateSnap.exists ? tripStateSnap.data() : null;
+    const currentStopId = tripState?.currentStopId;
+    const nextStopId = tripState?.nextStopId;
+
+    if (!currentStopId || !nextStopId) {
+        return;
+    }
+
+    const segmentId = currentStopId + '_to_' + nextStopId;
+
+    await db
+        .collection('routeCrowdHeatmap')
+        .doc(routeId)
+        .set(
+            {
+                segments: {
+                    [segmentId]: crowdLevel,
+                },
+                updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+        );
+
+    console.log('Route heatmap updated:', routeId, segmentId, crowdLevel);
 });
 
 module.exports = {

@@ -10,10 +10,11 @@
         "serve": "firebase emulators:start --only functions",
         "shell": "firebase functions:shell",
         "deploy": "firebase deploy --only functions",
-        "logs": "firebase functions:log"
+        "logs": "firebase functions:log",
+        "test-backend": "node test-ticket-verification.js && node test-telemetry-pipeline.js && node test-backend-pipeline.js"
     },
     "dependencies": {
         "firebase-admin": "^13.0.0",
-        "firebase-functions": "^6.0.1"
+        "firebase-functions": "^7.1.1"
     }
 }

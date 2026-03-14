@@ -172,11 +172,34 @@ async function testTelemetryProcessing() {
 
 async function testEtaPrediction() {
     const vehicleId = 'bus102';
+    const routeId = 'route_test_pipeline';
+    const tripId = 'trip_pipeline_test';
+
+    const routeRef = db.collection('routes').doc(routeId);
+    const tripRef = db.collection('trips').doc(tripId);
     const telemetryRef = db.collection('telemetry').doc(vehicleId);
     const etaRef = db.collection('etas').doc(vehicleId);
 
     await safeDelete(telemetryRef);
     await safeDelete(etaRef);
+    await safeDelete(tripRef);
+    await safeDelete(routeRef);
+
+    await routeRef.set({
+        routeId,
+        stops: [
+            { stopId: 'central_station', latitude: 28.6139, longitude: 77.2090, sequence: 1 },
+            { stopId: 'rajiv_chowk', latitude: 28.6328, longitude: 77.2197, sequence: 2 },
+            { stopId: 'khan_market', latitude: 28.6005, longitude: 77.2270, sequence: 3 },
+            { stopId: 'airport_terminal', latitude: 28.5562, longitude: 77.1000, sequence: 4 }
+        ]
+    });
+
+    await tripRef.set({
+        tripId,
+        vehicleId,
+        routeId
+    });
 
     await telemetryRef.set({
         vehicleId,

@@ -264,6 +264,8 @@ const processTelemetry = onDocumentWritten('telemetry/{vehicleId}', async (event
             nextStopId,
             predictedArrival,
             confidence: 0.9,
+            distanceMeters: distanceToNextStop,
+            usedFallbackSpeed: false,
             updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
