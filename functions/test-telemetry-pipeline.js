@@ -143,7 +143,7 @@ async function insertTelemetry() {
         vehicleId: VEHICLE_ID,
         latitude: 30.7333,
         longitude: 76.7794,
-        speed: 60,
+        speedKmh: 60,
         heading: 120,
         updatedAt: FieldValue.serverTimestamp()
     });

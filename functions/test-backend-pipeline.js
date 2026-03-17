@@ -141,7 +141,7 @@ async function testTelemetryProcessing() {
         vehicleId,
         latitude: 30.7333,
         longitude: 76.7794,
-        speed: 95,
+        speedKmh: 95,
         heading: 120,
         updatedAt: FieldValue.serverTimestamp()
     });
@@ -205,7 +205,7 @@ async function testEtaPrediction() {
         vehicleId,
         latitude: 30.7333,
         longitude: 76.7794,
-        speed: 40,
+        speedKmh: 40,
         updatedAt: FieldValue.serverTimestamp()
     });
 

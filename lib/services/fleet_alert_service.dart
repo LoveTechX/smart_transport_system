@@ -101,10 +101,7 @@ class FleetAlertService {
       final data = change.doc.data();
       if (data == null) continue;
 
-      final speedRaw = _toDouble(data['speed']) ?? 0.0;
-      // `speed` from geolocator is in m/s; the publisher stores m/s directly.
-      // Convert to km/h for threshold comparison.
-      final speedKmh = speedRaw * 3.6;
+      final speedKmh = _toDouble(data['speedKmh']) ?? 0.0;
       final updatedAt = _toDateTime(data['updatedAt']);
 
       _telemetry[vehicleId] = _TelemetryState(

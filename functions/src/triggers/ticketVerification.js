@@ -15,21 +15,23 @@ const handleTicketVerification = onDocumentUpdated('tickets/{ticketId}', async (
         return;
     }
 
-    if (!event.data.before || !event.data.after) {
-        return;
-    }
-
     const before = event.data.before.data();
     const after = event.data.after.data();
     const ticketId = event.params.ticketId;
 
-    if (after?.status !== VERIFIED_STATUS) {
+    if (!before || !after) {
         return;
     }
 
-    if (before?.status === VERIFIED_STATUS) {
+    if (before.status === VERIFIED_STATUS) {
         return;
     }
+
+    if (after.status !== VERIFIED_STATUS) {
+        return;
+    }
+
+    console.log('Verification transition:', before.status, '->', after.status);
 
     const tripId = after?.tripId;
     if (!tripId) {
@@ -40,28 +42,31 @@ const handleTicketVerification = onDocumentUpdated('tickets/{ticketId}', async (
     const db = admin.firestore();
     const tripRef = db.collection('trips').doc(tripId);
 
-    await db.runTransaction(async (tx) => {
-        const tripSnap = await tx.get(tripRef);
+    const tripSnap = await tripRef.get();
 
-        if (!tripSnap.exists) {
-            logger.warn('Trip not found for verified ticket.', { ticketId, tripId });
-            return;
-        }
+    if (!tripSnap.exists) {
+        logger.warn('Trip not found for verified ticket.', { ticketId, tripId });
+        return;
+    }
 
-        tx.update(tripRef, {
-            verifiedTicketCount: FieldValue.increment(1),
-            currentOccupancy: FieldValue.increment(1),
-            availableSeats: FieldValue.increment(-1),
-            [`seatMap.${after.seatNumber}`]: {
-                ticketId,
-                status: VERIFIED_STATUS,
-                verifiedAt: FieldValue.serverTimestamp(),
-            },
-        });
+    const tripUpdate = {
+        verifiedTicketCount: FieldValue.increment(1),
+        currentOccupancy: FieldValue.increment(1),
+        availableSeats: FieldValue.increment(-1),
+    };
 
-        tx.update(event.data.after.ref, {
-            verificationProcessedAt: FieldValue.serverTimestamp(),
-        });
+    if (after.seatNumber !== undefined && after.seatNumber !== null) {
+        tripUpdate[`seatMap.${after.seatNumber}`] = {
+            ticketId,
+            status: VERIFIED_STATUS,
+            verifiedAt: FieldValue.serverTimestamp(),
+        };
+    }
+
+    await tripRef.update(tripUpdate);
+
+    await event.data.after.ref.update({
+        verificationProcessedAt: FieldValue.serverTimestamp(),
     });
 
     logger.info('Ticket verification processed.', { ticketId, tripId });

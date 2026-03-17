@@ -102,7 +102,7 @@ service cloud.firestore {
           'latitude',
           'longitude',
           'heading',
-          'speed',
+          'speedKmh',
           'accuracy',
           'altitude',
           'status',
@@ -159,7 +159,7 @@ service cloud.firestore {
     }
 
     match /telemetry/{telemetryId} {
-      allow read: if isAdmin() || isDriver() || isConductor();
+      allow read: if true;
 
       allow create: if isAdmin()
         || (
@@ -171,6 +171,26 @@ service cloud.firestore {
 
       allow update: if isAdmin() || driverTelemetryWriteAllowed();
       allow delete: if isAdmin();
+    }
+
+    match /etas/{etaId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /tripState/{tripStateId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /routeCrowdHeatmap/{routeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /crowdStatus/{statusId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /alerts/{alertId} {

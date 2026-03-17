@@ -79,14 +79,17 @@ class TelemetryPublisherService {
       return;
     }
 
+    final speedMps = position.speed < 0 ? 0.0 : position.speed;
+    final speedKmh = speedMps * 3.6;
+
     final telemetry = <String, dynamic>{
       'vehicleId': vehicleId,
       'driverId': driverId,
       'latitude': position.latitude,
       'longitude': position.longitude,
-      'speed': position.speed < 0 ? 0.0 : position.speed,
+      'speedKmh': speedKmh,
       'heading': _normalizedHeading(position.heading),
-      'timestamp': Timestamp.fromDate(position.timestamp ?? now),
+      'timestamp': Timestamp.fromDate(position.timestamp),
       'updatedAt': FieldValue.serverTimestamp(),
     };
 

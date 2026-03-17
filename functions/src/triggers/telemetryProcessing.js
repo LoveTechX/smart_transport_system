@@ -192,8 +192,8 @@ const processTelemetry = onDocumentWritten('telemetry/{vehicleId}', async (event
         }
     }
 
-    const speed = toNumber(telemetry.speed);
-    if (!Number.isFinite(speed) || speed <= 0) {
+    const speedKmh = toNumber(telemetry.speedKmh);
+    if (!Number.isFinite(speedKmh) || speedKmh <= 0) {
         return;
     }
 
@@ -204,7 +204,7 @@ const processTelemetry = onDocumentWritten('telemetry/{vehicleId}', async (event
     const beforeUpdatedAt = toDate(beforeData?.updatedAt);
 
     const isOverspeedTransition =
-        speed > OVERSPEED_THRESHOLD_KMH && toNumber(beforeData?.speed) <= OVERSPEED_THRESHOLD_KMH;
+        speedKmh > OVERSPEED_THRESHOLD_KMH && toNumber(beforeData?.speedKmh) <= OVERSPEED_THRESHOLD_KMH;
 
     if (isOverspeedTransition) {
         const alertId = createAlertId('overspeed', vehicleId, afterUpdatedAt);
@@ -214,7 +214,7 @@ const processTelemetry = onDocumentWritten('telemetry/{vehicleId}', async (event
                 type: 'overspeed',
                 severity: 'high',
                 vehicleId,
-                speed,
+                speedKmh,
                 thresholdKmh: OVERSPEED_THRESHOLD_KMH,
                 telemetryAt: afterData.updatedAt || FieldValue.serverTimestamp(),
                 resolved: false,
@@ -254,8 +254,7 @@ const processTelemetry = onDocumentWritten('telemetry/{vehicleId}', async (event
     const distanceToNextStop = toNumber(tripState.distanceToNextStop);
     const nextStopId = tripState.nextStopId || null;
 
-    const speedMps = speed / 3.6;
-    const etaSeconds = distanceToNextStop / speedMps;
+    const etaSeconds = (distanceToNextStop * 3.6) / speedKmh;
     const predictedArrival = Timestamp.fromMillis(Date.now() + etaSeconds * 1000);
 
     await db.collection('etas').doc(vehicleId).set(

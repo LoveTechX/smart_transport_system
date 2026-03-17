@@ -6,7 +6,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../models/bus_route.dart';
 import '../../models/bus_routes_repository.dart';
-import '../../services/eta_prediction_service.dart';
 
 class TrackBusScreen extends StatefulWidget {
   final String? routeId;
@@ -32,8 +31,9 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
   Timer? _busAnimationTimer;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _telemetryStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _etaStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _routeHeatmapStream;
+  Map<String, String> _heatmapSegments = {};
   String? _lastTelemetrySignature;
-  final EtaPredictionService _etaPredictionService = EtaPredictionService();
 
   final ValueNotifier<_LiveTelemetryState> _liveTelemetryNotifier =
       ValueNotifier<_LiveTelemetryState>(const _LiveTelemetryState());
@@ -84,6 +84,10 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
     _telemetryStream =
         firestore.collection('telemetry').doc(vehicleId.trim()).snapshots();
     _etaStream = firestore.collection('etas').doc(vehicleId.trim()).snapshots();
+    _routeHeatmapStream = firestore
+        .collection('routeCrowdHeatmap')
+        .doc(selectedRoute?.id ?? widget.routeId)
+        .snapshots();
   }
 
   void _updateRouteOverlays() {
@@ -140,17 +144,25 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
       );
     }
 
-    // Draw polyline
-    final coordinates =
-        stops.map((s) => LatLng(s.latitude, s.longitude)).toList();
-
-    if (coordinates.isNotEmpty) {
+    // Draw per-segment polylines coloured by crowd heatmap
+    for (int i = 0; i < stops.length - 1; i++) {
+      final stopA = stops[i];
+      final stopB = stops[i + 1];
+      final segmentId = '${stopA.id}_to_${stopB.id}';
+      print('Generated segmentId: $segmentId');
+      final crowdLevel = _heatmapSegments[segmentId];
+      final segmentColor = crowdLevel != null
+          ? _colorForCrowd(crowdLevel)
+          : const Color(0xFFFFC107);
       polylines.add(
         Polyline(
-          polylineId: const PolylineId('route_path'),
-          points: coordinates,
-          color: const Color(0xFFFFC107),
-          width: 5,
+          polylineId: PolylineId(segmentId),
+          points: [
+            LatLng(stopA.latitude, stopA.longitude),
+            LatLng(stopB.latitude, stopB.longitude),
+          ],
+          color: segmentColor,
+          width: 6,
           geodesic: true,
         ),
       );
@@ -256,35 +268,27 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
       return;
     }
 
-    final speedMps = _asDouble(data['speed']) ?? 0.0;
+    final speedKmh = _asDouble(data['speedKmh']) ?? 0.0;
     final heading = _normalizeHeading(_asDouble(data['heading']) ?? 0.0);
     final updatedAt = _asDateTime(data['updatedAt']) ??
         _asDateTime(data['timestamp']) ??
         DateTime.now();
 
     final signature =
-        '${latitude.toStringAsFixed(6)}|${longitude.toStringAsFixed(6)}|${speedMps.toStringAsFixed(2)}|${heading.toStringAsFixed(1)}|${updatedAt.millisecondsSinceEpoch}';
+        '${latitude.toStringAsFixed(6)}|${longitude.toStringAsFixed(6)}|${speedKmh.toStringAsFixed(2)}|${heading.toStringAsFixed(1)}|${updatedAt.millisecondsSinceEpoch}';
     if (_lastTelemetrySignature == signature) {
       return;
     }
     _lastTelemetrySignature = signature;
 
     final nextPosition = LatLng(latitude, longitude);
-    unawaited(
-      _updateEtaPrediction(
-        latitude: latitude,
-        longitude: longitude,
-        speedMps: speedMps,
-        telemetryUpdatedAt: updatedAt,
-      ),
-    );
 
     final from = _liveTelemetryNotifier.value.position;
 
     if (from == null) {
       _liveTelemetryNotifier.value = _liveTelemetryNotifier.value.copyWith(
         position: nextPosition,
-        speedMps: speedMps,
+        speedKmh: speedKmh,
         heading: heading,
         lastUpdated: updatedAt,
         statusMessage: null,
@@ -295,41 +299,10 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
     _animateBusMarker(
       from: from,
       to: nextPosition,
-      speedMps: speedMps,
+      speedKmh: speedKmh,
       heading: heading,
       lastUpdated: updatedAt,
     );
-  }
-
-  Future<void> _updateEtaPrediction({
-    required double latitude,
-    required double longitude,
-    required double speedMps,
-    required DateTime telemetryUpdatedAt,
-  }) async {
-    final route = selectedRoute;
-    final vehicleId = route?.id ?? widget.routeId;
-    if (route == null || vehicleId == null || vehicleId.trim().isEmpty) {
-      return;
-    }
-
-    try {
-      await _etaPredictionService.predictAndStore(
-        vehicleId: vehicleId,
-        route: route,
-        latitude: latitude,
-        longitude: longitude,
-        speedMps: speedMps,
-        telemetryUpdatedAt: telemetryUpdatedAt,
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      _etaNotifier.value = _etaNotifier.value.copyWith(
-        statusMessage: 'Failed to update ETA prediction.',
-      );
-    }
   }
 
   void _scheduleEtaProcessing(
@@ -390,6 +363,54 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
     );
   }
 
+  Color _colorForCrowd(String level) {
+    switch (level) {
+      case 'LOW':
+        return Colors.green;
+      case 'MEDIUM':
+        return Colors.orange;
+      case 'HIGH':
+        return Colors.red;
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
+  void _scheduleHeatmapProcessing(
+    AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snapshot,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _processHeatmapSnapshot(snapshot);
+    });
+  }
+
+  void _processHeatmapSnapshot(
+    AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snapshot,
+  ) {
+    if (snapshot.hasError || snapshot.data == null) return;
+    final document = snapshot.data!;
+    if (!document.exists) {
+      if (_heatmapSegments.isNotEmpty) {
+        _heatmapSegments = {};
+        _updateRouteOverlays();
+        setState(() {});
+      }
+      return;
+    }
+    final data = document.data();
+    if (data == null) return;
+    final raw = data['segments'];
+    final Map<String, String> segments = raw is Map
+        ? raw.map((k, v) => MapEntry(k.toString(), v.toString()))
+        : {};
+    print('Heatmap segments from Firestore: $segments');
+    if (segments.toString() == _heatmapSegments.toString()) return;
+    _heatmapSegments = segments;
+    _updateRouteOverlays();
+    setState(() {});
+  }
+
   String? _stopNameById(String stopId) {
     final route = selectedRoute;
     if (route == null) {
@@ -407,7 +428,7 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
   void _animateBusMarker({
     required LatLng from,
     required LatLng to,
-    required double speedMps,
+    required double speedKmh,
     required double heading,
     required DateTime lastUpdated,
   }) {
@@ -432,7 +453,7 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
 
       _liveTelemetryNotifier.value = _liveTelemetryNotifier.value.copyWith(
         position: interpolated,
-        speedMps: speedMps,
+        speedKmh: speedKmh,
         heading: heading,
         lastUpdated: lastUpdated,
         statusMessage: null,
@@ -458,8 +479,7 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
           flat: true,
           infoWindow: InfoWindow(
             title: 'Live Bus',
-            snippet:
-                'Speed ${(liveState.speedMps * 3.6).toStringAsFixed(1)} km/h',
+            snippet: 'Speed ${liveState.speedKmh.toStringAsFixed(1)} km/h',
           ),
           icon:
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
@@ -658,6 +678,19 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
                             ),
                           ),
                         ),
+                      if (_routeHeatmapStream != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: StreamBuilder<
+                                DocumentSnapshot<Map<String, dynamic>>>(
+                              stream: _routeHeatmapStream,
+                              builder: (context, snapshot) {
+                                _scheduleHeatmapProcessing(snapshot);
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -777,7 +810,7 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Speed: ${(liveState.speedMps * 3.6).toStringAsFixed(1)} km/h',
+                    'Speed: ${liveState.speedKmh.toStringAsFixed(1)} km/h',
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                   Text(
@@ -1011,28 +1044,28 @@ class _TrackBusScreenState extends State<TrackBusScreen> {
 class _LiveTelemetryState {
   const _LiveTelemetryState({
     this.position,
-    this.speedMps = 0,
+    this.speedKmh = 0,
     this.heading = 0,
     this.lastUpdated,
     this.statusMessage,
   });
 
   final LatLng? position;
-  final double speedMps;
+  final double speedKmh;
   final double heading;
   final DateTime? lastUpdated;
   final String? statusMessage;
 
   _LiveTelemetryState copyWith({
     LatLng? position,
-    double? speedMps,
+    double? speedKmh,
     double? heading,
     DateTime? lastUpdated,
     String? statusMessage,
   }) {
     return _LiveTelemetryState(
       position: position ?? this.position,
-      speedMps: speedMps ?? this.speedMps,
+      speedKmh: speedKmh ?? this.speedKmh,
       heading: heading ?? this.heading,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       statusMessage: statusMessage,

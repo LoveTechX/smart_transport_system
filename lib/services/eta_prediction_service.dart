@@ -1,24 +1,20 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../models/bus_route.dart';
 
 class EtaPredictionService {
-  EtaPredictionService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  EtaPredictionService();
 
-  static const double _minimumUsableSpeedMps = 0.5;
+  static const double _minimumUsableSpeedKmh = 2.0;
   static const double _nextStopReachedThresholdMeters = 60;
 
-  final FirebaseFirestore _firestore;
-
-  Future<EtaPrediction?> predictAndStore({
+  Future<EtaPrediction?> predict({
     required String vehicleId,
     required BusRoute route,
     required double latitude,
     required double longitude,
     required DateTime telemetryUpdatedAt,
-    double? speedMps,
+    double? speedKmh,
   }) async {
     final normalizedVehicleId = vehicleId.trim();
     if (normalizedVehicleId.isEmpty || route.stops.isEmpty) {
@@ -44,12 +40,13 @@ class EtaPredictionService {
       nextStop.longitude,
     );
 
-    final hasLiveSpeed = speedMps != null && speedMps >= _minimumUsableSpeedMps;
-    final routeAverageSpeedMps = _routeAverageSpeedMps(route);
-    final effectiveSpeedMps = hasLiveSpeed ? speedMps! : routeAverageSpeedMps;
+    final hasLiveSpeed = speedKmh != null && speedKmh >= _minimumUsableSpeedKmh;
+    final routeAverageSpeedKmh = _routeAverageSpeedKmh(route);
+    final effectiveSpeedKmh = hasLiveSpeed ? speedKmh : routeAverageSpeedKmh;
 
-    final etaSeconds =
-        (distanceMeters / effectiveSpeedMps).round().clamp(0, 24 * 60 * 60);
+    final etaSeconds = ((distanceMeters * 3.6) / effectiveSpeedKmh)
+        .round()
+        .clamp(0, 24 * 60 * 60);
 
     final predictedArrival = telemetryUpdatedAt.add(
       Duration(seconds: etaSeconds),
@@ -67,21 +64,9 @@ class EtaPredictionService {
       predictedArrival: predictedArrival,
       confidence: confidence,
       distanceMeters: distanceMeters,
-      speedMpsUsed: effectiveSpeedMps,
+      speedKmhUsed: effectiveSpeedKmh,
       usedFallbackSpeed: !hasLiveSpeed,
     );
-
-    await _firestore.collection('etas').doc(normalizedVehicleId).set({
-      'nextStopId': prediction.nextStopId,
-      'predictedArrival': Timestamp.fromDate(prediction.predictedArrival),
-      'confidence': prediction.confidence,
-      'routeId': route.id,
-      'distanceMeters': prediction.distanceMeters,
-      'speedMps': prediction.speedMpsUsed,
-      'usedFallbackSpeed': prediction.usedFallbackSpeed,
-      'telemetryUpdatedAt': Timestamp.fromDate(telemetryUpdatedAt),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
 
     return prediction;
   }
@@ -121,13 +106,12 @@ class EtaPredictionService {
     return orderedStops[nearestIndex];
   }
 
-  double _routeAverageSpeedMps(BusRoute route) {
+  double _routeAverageSpeedKmh(BusRoute route) {
     if (route.distance <= 0 || route.estimatedMinutes <= 0) {
-      return 6.0;
+      return 24.0;
     }
 
-    final seconds = route.estimatedMinutes * 60;
-    return (route.distance * 1000) / seconds;
+    return (route.distance / route.estimatedMinutes) * 60;
   }
 
   double _confidenceScore({
@@ -161,7 +145,7 @@ class EtaPrediction {
     required this.predictedArrival,
     required this.confidence,
     required this.distanceMeters,
-    required this.speedMpsUsed,
+    required this.speedKmhUsed,
     required this.usedFallbackSpeed,
   });
 
@@ -170,6 +154,6 @@ class EtaPrediction {
   final DateTime predictedArrival;
   final double confidence;
   final double distanceMeters;
-  final double speedMpsUsed;
+  final double speedKmhUsed;
   final bool usedFallbackSpeed;
 }

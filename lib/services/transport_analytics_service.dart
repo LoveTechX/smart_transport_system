@@ -239,7 +239,7 @@ class TransportAnalyticsService {
           averageOccupancy: _average(occupancySamples),
           peakHour: peakHour,
           averageTripDuration: _average(tripDurationsMinutes),
-          utilization: utilization,
+          utilization: utilization.toDouble(),
           updatedAt: null,
         ),
       );

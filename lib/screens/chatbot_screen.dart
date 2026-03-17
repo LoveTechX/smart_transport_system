@@ -113,7 +113,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     final punjabiWords = <String>{
       'tusi',
       'tuhada',
-      'tuhada',
       'tuhanu',
       'kive',
       'kida',

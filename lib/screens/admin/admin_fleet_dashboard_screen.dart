@@ -270,7 +270,7 @@ class _AdminFleetDashboardScreenState extends State<AdminFleetDashboardScreen> {
       vehicleId: doc.id,
       latitude: latitude,
       longitude: longitude,
-      speedKmh: _toDouble(data['speed']) ?? 0,
+      speedKmh: _toDouble(data['speedKmh']) ?? 0,
       heading: _normalizeHeading(_toDouble(data['heading']) ?? 0),
       updatedAt: _toDateTime(data['updatedAt']),
     );
